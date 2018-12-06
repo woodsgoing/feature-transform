@@ -55,6 +55,45 @@ def debug(*arg):
     if _DEBUG == True:
         _log(*arg, mode = 'debug')
 
+def transform_auto(dataframe, target='', key_feature = '', baseline='', \
+                   binning_flag=False, fast_mode = True):
+    """
+    Integrated API to transfrom features with multi methods, like infinite 
+    confine, solo transform, bias features, binning and aggregate.
+    To handle multi-colinearity, drop first generated column and delete const 
+    nan column, while nan_as_category is always true.
+    Parameters
+    ----------
+    dataframe : pandas.Dataframe
+    
+    Return
+    -------
+    dataframe after process
+    feature list which is newly generated
+    """
+    df = dataframe.copy(deep=True)
+    df = confine_infinite(df)
+    df = generate_on_solo_feature(df, target)
+    df = generate_bias_features(df, target)
+    if binning_flag == True:
+        df = binning(df, target)
+    df = generate_polynomial_feature(df, target=target)
+    if key_feature != '' and baseline == '':
+        df = aggregrate_on_key(df, target=target, key_feature=key_feature,\
+                               fast_mode=fast_mode)
+    elif key_feature == '' and baseline != '':
+        df = aggregrate_along_baseline(df, target=target,\
+                                       baseline_feature=baseline,\
+                                       fast_mode=fast_mode)        
+    elif key_feature != '' and baseline != '':
+        aggregrate_on_key_along_baseline(df,  key_feature=key_feature, \
+                                         baseline_feature = baseline, \
+                                         target=target, interval='equal')
+
+    if outputfilename != '' or outputfilepath != '':
+        timeline = time.strftime("%Y_%m_%d", time.localtime()) 
+        dataframe.to_csv(outputfilepath+outputfilename+timeline+'.out.csv', index= False)
+    return df
 
 def one_hot_encoder(dataframe, nan_as_category = True):
     """
@@ -94,7 +133,9 @@ def confine_infinite(dataframe):
     -------
     dataframe after process
     """
-    for f in dataframe.columns:
+    number_features = [f_ for f_ in dataframe.columns \
+                       if dataframe[f_].dtype != 'object']
+    for f in number_features:
         col = dataframe[f]
         col_inf_n = np.isneginf(col)
         col_inf_p = np.isposinf(col)
@@ -106,7 +147,7 @@ def confine_infinite(dataframe):
         debug(sum(col_inf_p))
         debug(min(col))
         debug(max(col))
-    return
+    return dataframe
     
 
 def binning(dataframe, target, binning_features=[], method='auto', num_limit=6, 
@@ -382,8 +423,8 @@ def generate_on_solo_feature(dataframe, target=''):
 
 def generate_bias_features(dataframe, target='', corr_threshold=0.85, significant_alpha=0.5):
     """
-    Calculate different values between similar features. Similar features have
-    high correlation and similiar value range.
+    Calculate different values between similar features. 'Similar features' here
+    means high correlation and similiar value range.
     
     Parameters
     ----------
@@ -432,7 +473,7 @@ def generate_bias_features(dataframe, target='', corr_threshold=0.85, significan
         
     return df
     
-def generate_polynomial_feature(dataframe, one_hot_encode=True):
+def generate_polynomial_feature(dataframe, target='', one_hot_encode=True):
     """
     Generate new features with binary polynomial method.
     For category type features, intersection features are generated.
@@ -463,19 +504,20 @@ def generate_polynomial_feature(dataframe, one_hot_encode=True):
 
     # convert nominal type feature to number type feature
     if one_hot_encode == True:
-        cat_feats = [f for f in df.columns if df[f].dtype == object]
+        cat_feats = [f for f in df.columns if df[f].dtype == object and f!=target]
         df,new_cols = one_hot_encoder(dataframe, True)
         df = pd.concat([df, dataframe[cat_feats]],axis=1)
     # convert number type feature to nominal type feature 
-        numeric_feats = [f for f in df.columns if df[f].dtype != object and f not in new_cols]
+        numeric_feats = [f for f in df.columns if df[f].dtype != object \
+                         and f not in new_cols and f!=target]
         for f_ in numeric_feats:
             if df[f_].nunique() <= NUMBER2NOMINAL_NUM \
             and df[f_].nunique()/df.shape[0] <= NUMBER2NOMINAL_RATIO:
                 df[f_+'_cat'] = df[f_].astype(str)
         
                 
-    cat_feats = [f for f in df.columns if df[f].dtype == object]
-    cat_feats2 = [f for f in df.columns if df[f].dtype == object]
+    cat_feats = [f for f in df.columns if df[f].dtype == object and f!=target]
+    cat_feats2 = [f for f in df.columns if df[f].dtype == object and f!=target]
     for f_1 in cat_feats:
         for f_2 in cat_feats2:
             if f_1!=f_2:
@@ -486,7 +528,9 @@ def generate_polynomial_feature(dataframe, one_hot_encode=True):
     numeric_feats2 = [f for f in df.columns if df[f].dtype != object]
     for f_1 in numeric_feats:
         for f_2 in numeric_feats2:
-            df[f_1+'.'+f_2] = df[f_1]*df[f_2]
+            df[f_1+'x'+f_2] = df[f_1]*df[f_2]
+            if f_1 != f_2:
+                df[f_1+'/'+f_2] = df[f_1]/df[f_2]
         numeric_feats2.remove(f_1)
 
     return df
@@ -513,7 +557,62 @@ def generate_cross_feature(dataframe, relation_map):
     return
 
 
-def aggregrate_with_baseline(dataframe, baseline_feature, aggr_feature=[], \
+def aggregrate_on_key(dataframe,  key_feature, aggr_feature=[], target='', fast_mode=False):
+    """
+    Aggregated as mean/ size/ min/ max/std according to key feature which is
+    indexed for multi row.
+    Key feature is specified to slice dataframe to multi-partitions, on which 
+    aggregation works.
+    Dask module are introduced as fast mode to support quick calculate huge
+    amount of data.
+    
+    Parameters
+    ----------
+    dataframe : pandas.Dataframe
+            dataframe to process        
+    key_feature : string
+            name of the feature which slice dataframe to multi partitions
+    aggr_feature : string list, option
+            feature list which are aggregated, supporting numric type features.
+            all number features are aggregated if not specified.
+    target : string, option
+            target feature name
+    fast_mode : boolean, option
+            support dask for fast calculation. If true, dask module is adopted.
+    
+    
+    Return
+    -------
+    dataframe after process.
+    """
+    if len(aggr_feature) == 0:
+        aggr_feature = [col for col in dataframe.columns]
+    else:
+        aggr_feature.append(key_feature)   
+    
+    df = dataframe[aggr_feature]
+    df_enc, col_cat = one_hot_encoder(df, True)
+
+    aggregations = {}
+    numeric_cols = [col for col in df_enc.columns \
+                    if df_enc[col].dtype != 'object' and col != target \
+                    and col != key_feature]
+
+    for col in numeric_cols:
+        aggregations[col] = ['min', 'max', 'size','mean','sum','var','std']
+#        aggregations[col] = ['min', 'max', 'size','mean','sum','var','skew','kurt']
+
+    df_agg = _group_agg(df_enc, key_feature, aggregations, fast_mode)
+    df_agg.columns = pd.Index([e[0] + "_" + e[1].upper() \
+                                      for e in df_agg.columns.tolist()])
+    df_agg.reset_index(inplace=True)
+    df_agg.sort_values(by = key_feature,inplace=True)
+
+    df_agg.fillna(0)
+    debug(df_agg)
+    return df_agg
+
+def aggregrate_along_baseline(dataframe, baseline_feature, aggr_feature=[], \
                              target='', interval='equal', segment=10, fast_mode = True):
     """
     It's useful to analyze feature change along some continuous baseline,  like 
@@ -600,11 +699,13 @@ def aggregrate_with_baseline(dataframe, baseline_feature, aggr_feature=[], \
     df_agg.reset_index(inplace=True)
     df_agg.sort_values(by = baseline_feature,inplace=True)
     
+    df_agg.fillna(0)
     debug(df_agg)
     return df_agg
 
 
-def aggregrate_on_key_with_baseline(dataframe,  key_feature, baseline_feature, \
+
+def aggregrate_on_key_along_baseline(dataframe,  key_feature, baseline_feature, \
                                       aggr_feature=[], target='', interval=1, \
                                       segment=10, fast_mode=False):
     """
@@ -620,7 +721,9 @@ def aggregrate_on_key_with_baseline(dataframe,  key_feature, baseline_feature, \
     Parameters
     ----------
     dataframe : pandas.Dataframe
-            dataframe to process        
+            dataframe to process
+    key_feature : string
+            name of the feature which slice dataframe to multi partitions
     baseline_feature : string
             name of the feature which is numeric type
     aggr_feature : string list, option
@@ -688,7 +791,7 @@ def aggregrate_on_key_with_baseline(dataframe,  key_feature, baseline_feature, \
         df_on_key = df_enc.loc[dataframe[key_feature]==_key]
         df_check = df_on_key.drop([key_feature,baseline_feature],axis=1).dropna(axis=0,how='all')
         if df_check.shape[0] == 0:
-            debug('aggregrate_on_key_with_baseline: '+key_feature+'::'+str(_key)+' is all of null')
+            debug('aggregrate_on_key_along_baseline: '+key_feature+'::'+str(_key)+' is all of null')
             continue        
 
         agg = _group_agg(df_on_key, [key_feature,baseline_feature], aggregations, fast_mode)
