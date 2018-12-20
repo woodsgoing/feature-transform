@@ -19,59 +19,70 @@ def test_transform_general():
     transform.setEnvInfo(out_file_path,'application_train.log')
     table = pd.read_csv(in_file_path+'application_train_sample.csv')
     table.reset_index(drop=True,inplace=True)
-    test_polynomial_feature(table)
+#    test_polynomial_feature(table)
     test_process_binning(table)
-    test_generate_bias_features(table)
+#    test_generate_bias_features(table)
+#    test_generate_on_solo_feature(table)
 
 def test_aggr_general():
     transform.setEnvInfo(out_file_path,'installments_payments.log')
     table = pd.read_csv(in_file_path+'installments_payments_sample.csv')
         
-#    with timer("test_aggregrate_along_baseline"):
-#        test_aggregrate_along_baseline(table)
+#    with timer("test_aggregrate_along_axis"):
+#        test_aggregrate_along_axis(table)
     
-    with timer("test_aggregrate_on_key_along_baseline"):
-        test_aggregrate_on_key_along_baseline(table)
+    with timer("test_aggregrate_on_key_along_axis"):
+        test_aggregrate_on_key_along_axis(table)
 #    with timer("test_generate_bias_features2"):
 #    test_generate_bias_features2(table)
         
-#    with timer("test_aggregrate_along_baseline_fast"):
-#        test_aggregrate_along_baseline_fast(table)
+#    with timer("test_aggregrate_along_axis_fast"):
+#        test_aggregrate_along_axis_fast(table)
     
-    with timer("test_aggregrate_on_key_along_baseline_fast"):
-        test_aggregrate_on_key_along_baseline_fast(table)
+    with timer("test_aggregrate_on_key_along_axis_fast"):
+        test_aggregrate_on_key_along_axis_fast(table)
 
 def test_transform_auto():
+    
+    with timer("transform process auto"):
+        transform.setEnvInfo(out_file_path,'application_train.log')
+        table = pd.read_csv(in_file_path+'application_train_sample.csv')
+        df = transform.transform_auto(table, target='TARGET', mode='regression')
+        df.to_csv(out_file_path+'application_train_sample.1212.output.csv')
+        del df
+        gc.collect()
+    
+    with timer("transform aggregrate_along_axis"):
+        transform.setEnvInfo(out_file_path,'installments_payments.log')
+        table = pd.read_csv(in_file_path+'installments_payments_sample.csv')
+        df = transform.transform_auto(table, axis='DAYS_ENTRY_PAYMENT',mode='regression')
+        df.to_csv(out_file_path+'installments_payments_sample.1212.output.csv')
+        del df
+        gc.collect()
+        
     with timer("transform aggregrate_on_key"):
         transform.setEnvInfo(out_file_path,'previous_application.log')
         table = pd.read_csv(in_file_path+'previous_application_sample.csv')
 #        test_aggregrate_on_key(table)  
-        df = transform.transform_auto(table, key_feature='SK_ID_CURR')
-        df.to_csv(out_file_path+'previous_application_sample.1205.output.csv')
+        table = table.sample(5000)
+        df = transform.transform_auto(table, key_feature='SK_ID_CURR',mode='regression')
+        df.to_csv(out_file_path+'previous_application_sample.1212.output.csv')
         del df
         gc.collect()
-    with timer("transform aggregrate_along_baseline"):
-        transform.setEnvInfo(out_file_path,'installments_payments.log')
-        table = pd.read_csv(in_file_path+'installments_payments_sample.csv')
-        df = transform.transform_auto(table, baseline='DAYS_ENTRY_PAYMENT')
-        df.to_csv(out_file_path+'installments_payments_sample.1205.output.csv')
-        del df
-        gc.collect()
-#        test_aggregrate_along_baseline(table)
+#        test_aggregrate_along_axis(table)
         
-    with timer("transform aggregrate_on_key_along_baseline"):
+    with timer("transform aggregrate_on_key_along_axis"):
         transform.setEnvInfo(out_file_path,'installments_payments.log')
         table = pd.read_csv(in_file_path+'installments_payments_sample.csv')
-        df = transform.transform_auto(table,  key_feature = 'SK_ID_CURR', base_feature='DAYS_ENTRY_PAYMENT', \
-                                      aggr_feature=['AMT_PAYMENT'])
-#        test_aggregrate_on_key_along_baseline(table)
-        df.to_csv(out_file_path+'installments_payments_sample2.1205.output.csv')
+        table = table.sample(5000)
+        df = transform.transform_auto(table,  key_feature = 'SK_ID_CURR', axis='DAYS_ENTRY_PAYMENT',mode='regression')
+        test_aggregrate_on_key_along_axis(table)
+        df.to_csv(out_file_path+'installments_payments_sample2.1212.output.csv')
         del df
         gc.collect()
         
 
-
-test_transform_auto()    
+  
 
 def test_polynomial_feature(table):
     df = table[['TARGET','CODE_GENDER','FLAG_OWN_CAR','AMT_CREDIT','AMT_ANNUITY','OWN_CAR_AGE']]
@@ -92,13 +103,13 @@ def test_process_binning(table):
 
 
 def test_aggregrate_on_key(table):
-    out_file_name = 'previous_application.output.1205'
+    out_file_name = 'previous_application.output.1212'
     dataframe = transform.aggregrate_on_key(table, base_feature='SK_ID_CURR')  
     dataframe.to_csv(out_file_path+out_file_name)
 
-def test_aggregrate_along_baseline(table):
-    out_file_name = 'installments_payments.output.1205'
-    dataframe_agg = transform.aggregrate_along_baseline(table, base_feature='DAYS_ENTRY_PAYMENT',aggr_feature=['AMT_PAYMENT'], interval = 'exp', segment=10, fast_mode=False)  
+def test_aggregrate_along_axis(table):
+    out_file_name = 'installments_payments.output.1212'
+    dataframe_agg = transform.aggregrate_along_axis(table, base_feature='DAYS_ENTRY_PAYMENT',aggr_feature=['AMT_PAYMENT'], interval = 'exp', segment=10, fast_mode=False)  
     
     for col in dataframe_agg.columns:
         plt.figure(figsize=(12,6))
@@ -106,7 +117,7 @@ def test_aggregrate_along_baseline(table):
         sns.lineplot(x='DAYS_ENTRY_PAYMENT', y=col, data=dataframe_agg)
         plt.savefig(out_file_path+out_file_name.replace('/','_')+'.'+col.replace('/','_')+'.line.png')
 
-    dataframe_agg = transform.aggregrate_along_baseline(table, base_feature='DAYS_ENTRY_PAYMENT',aggr_feature=['AMT_PAYMENT'], interval = 365, fast_mode=False)  
+    dataframe_agg = transform.aggregrate_along_axis(table, base_feature='DAYS_ENTRY_PAYMENT',aggr_feature=['AMT_PAYMENT'], interval = 365, fast_mode=False)  
     dataframe_agg.to_csv(out_file_path+out_file_name)
 
     for col in dataframe_agg.columns:
@@ -115,16 +126,16 @@ def test_aggregrate_along_baseline(table):
         sns.lineplot(x='DAYS_ENTRY_PAYMENT', y=col, data=dataframe_agg)
         plt.savefig(out_file_path+out_file_name.replace('/','_')+'.'+col.replace('/','_')+'.line.png')
 
-def test_aggregrate_on_key_along_baseline(table):
-    out_file_name = 'installments_payments2.output.1205'
-    df=transform.aggregrate_on_key_along_baseline(table,  key_feature = 'SK_ID_CURR', base_feature='DAYS_ENTRY_PAYMENT', \
+def test_aggregrate_on_key_along_axis(table):
+    out_file_name = 'installments_payments2.output.1212'
+    df=transform.aggregrate_on_key_along_axis(table,  key_feature = 'SK_ID_CURR', axis='DAYS_ENTRY_PAYMENT', \
                                       aggr_feature=['AMT_PAYMENT'], interval='sqrt', segment=3, fast_mode=False)
     df.to_csv(out_file_path+out_file_name)
 
 
-def test_aggregrate_along_baseline_fast(table):
+def test_aggregrate_along_axis_fast(table):
     out_file_name = 'installments_payments'
-    dataframe_agg = transform.aggregrate_along_baseline(table, base_feature='DAYS_ENTRY_PAYMENT',aggr_feature=['AMT_PAYMENT'], interval = 'exp', segment=10,fast_mode=True)  
+    dataframe_agg = transform.aggregrate_along_axis(table, axis='DAYS_ENTRY_PAYMENT',aggr_feature=['AMT_PAYMENT'], interval = 'exp', segment=10,fast_mode=True)  
     
     for col in dataframe_agg.columns:
         plt.figure(figsize=(12,6))
@@ -132,7 +143,7 @@ def test_aggregrate_along_baseline_fast(table):
         sns.lineplot(x='DAYS_ENTRY_PAYMENT', y=col, data=dataframe_agg)
         plt.savefig(out_file_path+out_file_name.replace('/','_')+'.'+col.replace('/','_')+'.line.png')
 
-    dataframe_agg = transform.aggregrate_along_baseline(table, base_feature='DAYS_ENTRY_PAYMENT',aggr_feature=['AMT_PAYMENT'], interval = 365,fast_mode=True)  
+    dataframe_agg = transform.aggregrate_along_axis(table, axis='DAYS_ENTRY_PAYMENT',aggr_feature=['AMT_PAYMENT'], interval = 365,fast_mode=True)  
     
     for col in dataframe_agg.columns:
         plt.figure(figsize=(12,6))
@@ -140,11 +151,16 @@ def test_aggregrate_along_baseline_fast(table):
         sns.lineplot(x='DAYS_ENTRY_PAYMENT', y=col, data=dataframe_agg)
         plt.savefig(out_file_path+out_file_name.replace('/','_')+'.'+col.replace('/','_')+'.line.png')
 
-def test_aggregrate_on_key_along_baseline_fast(table):
+def test_aggregrate_on_key_along_axis_fast(table):
     out_file_name = 'installments_payments.csv'
-    df=transform.aggregrate_on_key_along_baseline(table,  key_feature = 'SK_ID_CURR', base_feature='DAYS_ENTRY_PAYMENT', \
+    df=transform.aggregrate_on_key_along_axis(table,  key_feature = 'SK_ID_CURR', base_feature='DAYS_ENTRY_PAYMENT', \
                                       aggr_feature=['AMT_PAYMENT'], interval='sqrt', segment=3,fast_mode=True)
     df.to_csv(out_file_path+out_file_name)
+
+
+def test_generate_on_solo_feature(table):
+    df = transform.generate_on_solo_feature(table[['FLOORSMIN_MODE','ENTRANCES_MODE']],target='TARGET')
+    print(df.columns)
 
 
 def test_generate_bias_features(table):
@@ -157,4 +173,4 @@ def test_generate_bias_features2(table):
     
 #test_transform_general()
 #test_aggr_general()
-test_transform()
+test_transform_auto()  
